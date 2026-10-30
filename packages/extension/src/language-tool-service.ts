@@ -36,6 +36,7 @@ import type {
   EditorHostDocument,
   EditorToolWorkspaceAccess,
 } from './editor-tool-host.js';
+import { resolveDocumentIdentityCandidate } from './document-identity.js';
 import type { LanguageToolHost } from './language-tool-host.js';
 import {
   limitBoundedProviderItems,
@@ -831,28 +832,54 @@ export class LanguageToolService {
     if (!authorization.ok) {
       throw authorizationFailure(authorization.errorCode);
     }
-    return this.resolveAuthorizedDocument(authorization.document, identity, signal);
+    return this.resolveAuthorizedDocument(
+      authorization.document,
+      identity,
+      signal,
+      typeof reference !== 'string' && reference.kind === 'uri'
+        ? reference.uri
+        : undefined,
+    );
   }
 
   private async resolveAuthorizedDocument(
     target: AuthorizedWorkspaceDocument,
     identity: WorkspaceIdentity,
     signal: AbortSignal,
+    requestedUri?: string,
   ): Promise<AuthorizedHostDocument> {
+    const candidates: Array<{
+      uri: string;
+      canonicalPath: string;
+      value: AuthorizedHostDocument;
+    }> = [];
     for (const candidate of this.#host.openDocuments()) {
       throwIfCancelled(signal);
       const authorization = await this.authorize(identity, candidate.uri);
-      if (
-        authorization.ok &&
-        canonicalPathsEqual(
-          authorization.document.canonicalPath,
-          target.canonicalPath,
-          this.#pathStrategy,
-        )
-      ) {
-        return { hostDocument: candidate, authorization: authorization.document };
-      }
+      if (!authorization.ok) continue;
+      candidates.push({
+        uri: candidate.uri,
+        canonicalPath: authorization.document.canonicalPath,
+        value: { hostDocument: candidate, authorization: authorization.document },
+      });
     }
+    const resolution = resolveDocumentIdentityCandidate({
+      candidates,
+      targetCanonicalPath: target.canonicalPath,
+      ...(requestedUri === undefined ? {} : { requestedUri }),
+      samePhysicalPath: (left, right) =>
+        canonicalPathsEqual(left, right, this.#pathStrategy),
+    });
+    if (resolution.kind === 'ambiguous') {
+      throw new ToolFailure(
+        failure(
+          'DOCUMENT_IDENTITY_AMBIGUOUS',
+          'Multiple open VS Code documents refer to this physical file. Specify the exact document URI.',
+          true,
+        ),
+      );
+    }
+    if (resolution.kind === 'selected') return resolution.candidate.value;
 
     let stat: Awaited<ReturnType<LanguageToolHost['statFile']>>;
     throwIfCancelled(signal);

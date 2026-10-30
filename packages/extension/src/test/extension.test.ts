@@ -883,6 +883,193 @@ suite('vscode-mcp extension', () => {
   );
 
   testPosix(
+    'resolves symlink aliases consistently across read, diagnostics, write, and save',
+    async function () {
+      this.timeout(60_000);
+      await vscode.commands.executeCommand('vscode-mcp.disable');
+      const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      assert.ok(workspacePath);
+      const caseDirectory = await mkdtemp(join(workspacePath, 'v1-document-identity-'));
+      const relativeDirectory = basename(caseDirectory);
+      const relativePath = `${relativeDirectory}/identity.ts`;
+      const originalPath = join(caseDirectory, 'identity.ts');
+      const aliasPath = join(caseDirectory, 'identity-alias.ts');
+      const originalText = 'export const identity = "base";\n';
+      const editedText = 'export const identity = "edited-through-alias";\n';
+      await writeFile(originalPath, originalText, 'utf8');
+      await symlink(originalPath, aliasPath, 'file');
+      const originalDocument = await vscode.workspace.openTextDocument(
+        vscode.Uri.file(originalPath),
+      );
+      const aliasDocument = await vscode.workspace.openTextDocument(
+        vscode.Uri.file(aliasPath),
+      );
+      const originalRef = {
+        kind: 'uri',
+        uri: originalDocument.uri.toString(),
+      };
+      const aliasRef = {
+        kind: 'uri',
+        uri: aliasDocument.uri.toString(),
+      };
+      assert.notEqual(originalDocument.uri.toString(), aliasDocument.uri.toString());
+      assert.ok(
+        vscode.workspace.textDocuments.some((item) => item === originalDocument),
+      );
+      assert.ok(vscode.workspace.textDocuments.some((item) => item === aliasDocument));
+      const client = await startMcpClient(workspacePath);
+
+      try {
+        await enableWorkspaceMcp();
+        const instance = await waitForSingleInstance(client);
+        const instanceId = requiredString(instance, 'instanceId');
+        const folders = instance['workspaceFolders'];
+        assert.ok(Array.isArray(folders));
+        const folder = folders[0];
+        assert.ok(isRecord(folder));
+        const workspaceFolderId = requiredString(folder, 'workspaceFolderId');
+        await vscode.commands.executeCommand('vscode-mcp.enableWrites');
+
+        const aliasSnapshot = await readToolDocument(client, instanceId, aliasRef);
+        assert.equal(aliasSnapshot.document['uri'], aliasDocument.uri.toString());
+
+        if (originalDocument !== aliasDocument) {
+          const ambiguous = await callTool(client, 'read_document', {
+            instanceId,
+            document: {
+              kind: 'workspacePath',
+              workspaceFolderId,
+              relativePath,
+            },
+            startLine: 0,
+            lineCount: 5,
+          });
+          assertToolFailure(ambiguous, 'DOCUMENT_IDENTITY_AMBIGUOUS');
+        }
+
+        const edited = await callTool(client, 'apply_text_edits', {
+          instanceId,
+          documents: [
+            {
+              document: aliasRef,
+              expectedDocumentVersion: requiredNumber(
+                aliasSnapshot.document,
+                'documentVersion',
+              ),
+              edits: [
+                {
+                  range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 1, character: 0 },
+                  },
+                  newText: editedText,
+                },
+              ],
+            },
+          ],
+        });
+        assert.equal(recordProperty(edited, 'isError'), undefined);
+        assert.equal(aliasDocument.getText(), editedText);
+        if (originalDocument !== aliasDocument) {
+          assert.equal(originalDocument.getText(), originalText);
+        }
+
+        const aliasDiagnostics = await callTool(client, 'get_diagnostics', {
+          instanceId,
+          document: aliasRef,
+          limit: 20,
+        });
+        assert.equal(recordProperty(aliasDiagnostics, 'isError'), undefined);
+
+        const afterEdit = await readToolDocument(client, instanceId, aliasRef);
+        assert.equal(afterEdit.result['text'], editedText);
+        const saved = await callTool(client, 'save_documents', {
+          instanceId,
+          documents: [
+            {
+              document: aliasRef,
+              expectedDocumentVersion: requiredNumber(
+                afterEdit.document,
+                'documentVersion',
+              ),
+            },
+          ],
+        });
+        assert.equal(recordProperty(saved, 'isError'), undefined);
+        assert.equal(await readFile(originalPath, 'utf8'), editedText);
+
+        const currentAlias = await readToolDocument(client, instanceId, aliasRef);
+        const restored = await callTool(client, 'apply_text_edits', {
+          instanceId,
+          documents: [
+            {
+              document: aliasRef,
+              expectedDocumentVersion: requiredNumber(
+                currentAlias.document,
+                'documentVersion',
+              ),
+              edits: [
+                {
+                  range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 1, character: 0 },
+                  },
+                  newText: originalText,
+                },
+              ],
+            },
+          ],
+        });
+        assert.equal(recordProperty(restored, 'isError'), undefined);
+        const restoredSnapshot = await readToolDocument(client, instanceId, aliasRef);
+        const restoredSave = await callTool(client, 'save_documents', {
+          instanceId,
+          documents: [
+            {
+              document: aliasRef,
+              expectedDocumentVersion: requiredNumber(
+                restoredSnapshot.document,
+                'documentVersion',
+              ),
+            },
+          ],
+        });
+        assert.equal(recordProperty(restoredSave, 'isError'), undefined);
+        assert.equal(await readFile(originalPath, 'utf8'), originalText);
+
+        if (originalDocument !== aliasDocument) {
+          const primarySnapshot = await readToolDocument(
+            client,
+            instanceId,
+            originalRef,
+          );
+          assert.equal(
+            primarySnapshot.document['uri'],
+            originalDocument.uri.toString(),
+            JSON.stringify({
+              originalUri: originalDocument.uri.toString(),
+              aliasUri: aliasDocument.uri.toString(),
+              resolvedUri: primarySnapshot.document['uri'],
+              openUris: vscode.workspace.textDocuments.map((item) =>
+                item.uri.toString(),
+              ),
+            }),
+          );
+        }
+      } finally {
+        await vscode.commands.executeCommand('vscode-mcp.disableWrites');
+        await vscode.commands.executeCommand('vscode-mcp.disable');
+        await client.close();
+        await closeTabsForUris([
+          originalDocument.uri.toString(),
+          aliasDocument.uri.toString(),
+        ]);
+        await rm(caseDirectory, { force: true, recursive: true });
+      }
+    },
+  );
+
+  testPosix(
     'formats and saves text while rejecting opaque provider resource edits',
     async function () {
       this.timeout(60_000);

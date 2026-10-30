@@ -31,6 +31,7 @@ import {
   createWorkspaceIdentity,
   type WorkspaceIdentity,
 } from './workspace-identity.js';
+import { resolveDocumentIdentityCandidate } from './document-identity.js';
 import { SingleUseHandleStore } from './single-use-handle-store.js';
 import {
   saturatingAddProviderCounts,
@@ -1637,8 +1638,63 @@ async function openAuthorizedDocument(
   reference: DocumentRef,
   access: Access,
 ): Promise<vscode.TextDocument> {
-  const path = await authorizedExistingPath(reference, access);
-  return vscode.workspace.openTextDocument(vscode.Uri.file(path.path));
+  const target = await authorizedExistingPath(reference, access);
+  const requestedUri =
+    reference.kind === 'uri'
+      ? vscode.Uri.parse(reference.uri, true).toString()
+      : undefined;
+  const candidates: Array<{
+    uri: string;
+    canonicalPath: string;
+    value: vscode.TextDocument;
+  }> = [];
+  for (const candidate of vscode.workspace.textDocuments) {
+    try {
+      const authorization = await authorizedExistingPath(
+        { kind: 'uri', uri: candidate.uri.toString() },
+        access,
+      );
+      candidates.push({
+        uri: candidate.uri.toString(),
+        canonicalPath: authorization.path,
+        value: candidate,
+      });
+    } catch (error) {
+      if (error instanceof IdeToolError) continue;
+      throw error;
+    }
+  }
+  const resolution = resolveDocumentIdentityCandidate({
+    candidates,
+    targetCanonicalPath: target.path,
+    ...(requestedUri === undefined ? {} : { requestedUri }),
+    samePhysicalPath: sameCanonicalPath,
+  });
+  if (resolution.kind === 'ambiguous') {
+    throw new IdeToolError(
+      'DOCUMENT_IDENTITY_AMBIGUOUS',
+      'Multiple open VS Code documents refer to this physical file. Specify the exact document URI.',
+      true,
+    );
+  }
+  if (resolution.kind === 'selected') return resolution.candidate.value;
+
+  const opened = await vscode.workspace.openTextDocument(vscode.Uri.file(target.path));
+  const openedAuthorization = await authorizedExistingPath(
+    { kind: 'uri', uri: opened.uri.toString() },
+    access,
+  );
+  if (!sameCanonicalPath(openedAuthorization.path, target.path)) {
+    throw new IdeToolError(
+      'DOCUMENT_OUTSIDE_WORKSPACE',
+      'The opened document did not match the authorized target.',
+    );
+  }
+  return opened;
+}
+
+function sameCanonicalPath(left: string, right: string): boolean {
+  return relative(left, right) === '' && relative(right, left) === '';
 }
 
 async function authorizedExistingPath(
