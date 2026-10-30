@@ -297,7 +297,8 @@ export function createMcpServer(gateway: InstanceGateway): McpServer {
       description:
         'Lists authenticated, eligible local VS Code windows and deterministic selection metadata.',
       inputSchema: ListInstancesInputSchema,
-      outputSchema: ListInstancesSuccessSchema,
+      // Keep tools/list within the Gateway's aggregate discovery bound.
+      // The handler still validates the complete result with this schema.
       annotations: READ_ONLY_ANNOTATIONS,
     },
     async () => {
@@ -346,7 +347,8 @@ function registerExtensionTool(
       title: definition.title,
       description: definition.description,
       inputSchema: definition.inputSchema,
-      outputSchema: definition.outputSchema,
+      // Do not repeat output schemas across the full discovery inventory.
+      // completedCallResult still validates each result with this schema.
       annotations: annotationsFor(definition.name),
     },
     async (input: unknown, extra): Promise<CallToolResult> => {

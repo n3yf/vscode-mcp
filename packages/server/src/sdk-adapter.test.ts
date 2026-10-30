@@ -101,7 +101,7 @@ describe('MCP SDK adapter', () => {
       ]);
       for (const tool of tools.tools) {
         expect(tool.inputSchema).toBeDefined();
-        expect(tool.outputSchema).toBeDefined();
+        expect(tool.outputSchema).toBeUndefined();
         expect(tool.annotations?.openWorldHint).toBe(false);
         if (tool.name === 'delete_workspace_file' || tool.name === 'revert_documents') {
           expect(tool.annotations).toMatchObject({
@@ -140,6 +140,32 @@ describe('MCP SDK adapter', () => {
           resolution: { method: 'none' },
         },
       });
+    } finally {
+      await close();
+    }
+  });
+
+  it('keeps server-side output validation when output schemas are omitted from discovery', async () => {
+    const gateway: InstanceGateway = {
+      list: async () => ({
+        instances: 'invalid' as unknown as ListInstancesResult['instances'],
+        resolution: {
+          selectedInstanceId: null,
+          method: 'none',
+          candidateInstanceIds: [],
+        },
+      }),
+      call: async () => {
+        throw new Error('This test only calls list_instances.');
+      },
+    };
+    const { client, close } = await connected(gateway);
+    try {
+      const response = await client.callTool({
+        name: 'list_instances',
+        arguments: {},
+      });
+      expect(response.isError).toBe(true);
     } finally {
       await close();
     }
