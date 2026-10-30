@@ -10,7 +10,11 @@ export default defineConfig({
   },
   files: 'out/**/*.test.js',
   version: process.env['VSCODE_TEST_VERSION'] ?? 'stable',
-  launchArgs: ['--disable-gpu'],
+  launchArgs: [
+    '--disable-gpu',
+    `--user-data-dir=${join('/tmp', `vmcp-test-${uid}`, 'user-data')}`,
+    `--extensions-dir=${join('/tmp', `vmcp-test-${uid}`, 'extensions')}`,
+  ],
   workspaceFolder: '../../fixtures/extension-host.code-workspace',
   mocha: {
     timeout: 20_000,

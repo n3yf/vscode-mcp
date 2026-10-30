@@ -73,6 +73,9 @@ describe('shared protocol schemas', () => {
     expect(ErrorCodeSchema.parse('DOCUMENT_VERSION_MISMATCH')).toBe(
       'DOCUMENT_VERSION_MISMATCH',
     );
+    expect(ErrorCodeSchema.parse('DOCUMENT_IDENTITY_AMBIGUOUS')).toBe(
+      'DOCUMENT_IDENTITY_AMBIGUOUS',
+    );
     expect(() => ErrorCodeSchema.parse('ARBITRARY_COMMAND_FAILED')).toThrow();
   });
 

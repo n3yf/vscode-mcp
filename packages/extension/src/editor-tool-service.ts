@@ -41,6 +41,7 @@ import type {
   EditorToolHost,
   EditorToolWorkspaceAccess,
 } from './editor-tool-host.js';
+import { resolveDocumentIdentityCandidate } from './document-identity.js';
 import { saturatingAddProviderCounts } from './provider-output-bounds.js';
 import type { WorkspaceIdentity } from './workspace-identity.js';
 
@@ -283,6 +284,7 @@ export class EditorToolService {
       targetAuthorization.document,
       access.identity,
       signal,
+      arguments_.document.kind === 'uri' ? arguments_.document.uri : undefined,
     );
     const authorizedDocument =
       liveDocument ??
@@ -486,25 +488,43 @@ export class EditorToolService {
     target: AuthorizedWorkspaceDocument,
     identity: WorkspaceIdentity,
     signal: AbortSignal,
+    requestedUri?: string,
   ): Promise<AuthorizedHostDocument | null> {
+    const candidates: Array<{
+      uri: string;
+      canonicalPath: string;
+      value: AuthorizedHostDocument;
+    }> = [];
     for (const candidate of this.#host.openDocuments()) {
       throwIfCancelled(signal);
       const authorization = await this.authorize(identity, candidate.uri);
-      if (
-        authorization.ok &&
-        canonicalPathsEqual(
-          authorization.document.canonicalPath,
-          target.canonicalPath,
-          this.#pathStrategy,
-        )
-      ) {
-        return {
+      if (!authorization.ok) continue;
+      candidates.push({
+        uri: candidate.uri,
+        canonicalPath: authorization.document.canonicalPath,
+        value: {
           hostDocument: candidate,
           authorization: authorization.document,
-        };
-      }
+        },
+      });
     }
-    return null;
+    const resolution = resolveDocumentIdentityCandidate({
+      candidates,
+      targetCanonicalPath: target.canonicalPath,
+      ...(requestedUri === undefined ? {} : { requestedUri }),
+      samePhysicalPath: (left, right) =>
+        canonicalPathsEqual(left, right, this.#pathStrategy),
+    });
+    if (resolution.kind === 'ambiguous') {
+      throw new ToolFailure(
+        failure(
+          'DOCUMENT_IDENTITY_AMBIGUOUS',
+          'Multiple open VS Code documents refer to this physical file. Specify the exact document URI.',
+          true,
+        ),
+      );
+    }
+    return resolution.kind === 'selected' ? resolution.candidate.value : null;
   }
 
   private async openClosedDocument(
