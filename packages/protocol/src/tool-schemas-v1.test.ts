@@ -8,6 +8,8 @@ import {
   V1_ALL_EXTENSION_TOOL_NAMES,
 } from './tool-schemas-v1.js';
 
+const instanceId = 'a12f0291-37e2-4ff6-b763-0abf3fe66714';
+
 describe('1.0 complete IDE tool schemas', () => {
   it('defines the canonical 38 extension tools without duplicates', () => {
     expect(V1_ALL_EXTENSION_TOOL_NAMES).toHaveLength(38);
@@ -51,16 +53,28 @@ describe('1.0 complete IDE tool schemas', () => {
     ).toBe(false);
   });
 
+  it('requires an explicit instance for every additional IDE tool', () => {
+    expect(
+      V1AdditionalToolInputSchemas.get_capability_status.safeParse({ instanceId })
+        .success,
+    ).toBe(true);
+    expect(
+      V1AdditionalToolInputSchemas.get_capability_status.safeParse({}).success,
+    ).toBe(false);
+  });
+
   it('enforces replacement and create-file byte limits', () => {
     const tooLarge = 'x'.repeat(V1_IDE_TOOL_LIMITS.createdFileBytes + 1);
     expect(
       V1AdditionalToolInputSchemas.create_workspace_file.safeParse({
+        instanceId,
         destination: { workspaceFolderId: 'root', relativePath: 'large.txt' },
         content: tooLarge,
       }).success,
     ).toBe(false);
     expect(
       V1AdditionalToolInputSchemas.apply_text_edits.safeParse({
+        instanceId,
         documents: [
           {
             document: {
@@ -106,21 +120,25 @@ describe('1.0 complete IDE tool schemas', () => {
     );
     expect(
       V1AdditionalToolInputSchemas.apply_text_edits.safeParse({
+        instanceId,
         documents: maximumDocuments,
       }).success,
     ).toBe(true);
     expect(
       V1AdditionalToolInputSchemas.apply_text_edits.safeParse({
+        instanceId,
         documents: [...maximumDocuments, document(maximumDocuments.length)],
       }).success,
     ).toBe(false);
     expect(
       V1AdditionalToolInputSchemas.apply_text_edits.safeParse({
+        instanceId,
         documents: [document(0, V1_IDE_TOOL_LIMITS.editsPerDocument + 1)],
       }).success,
     ).toBe(false);
     expect(
       V1AdditionalToolInputSchemas.apply_text_edits.safeParse({
+        instanceId,
         documents: Array.from({ length: 5 }, (_, index) =>
           document(index, V1_IDE_TOOL_LIMITS.editsPerDocument),
         ),

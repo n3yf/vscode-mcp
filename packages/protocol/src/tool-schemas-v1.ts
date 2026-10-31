@@ -24,7 +24,7 @@ import {
 
 const VersionSchema = z.number().int().nonnegative();
 const LimitSchema = z.number().int().positive().max(V1_IDE_TOOL_LIMITS.providerItems);
-const InstanceShape = { instanceId: InstanceIdSchema.optional() };
+const InstanceShape = { instanceId: InstanceIdSchema };
 const DocumentShape = {
   document: DocumentRefSchema,
   expectedDocumentVersion: VersionSchema.optional(),

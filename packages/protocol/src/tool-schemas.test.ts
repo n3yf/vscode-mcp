@@ -83,6 +83,17 @@ describe('v0.1 tool inputs', () => {
     }
   });
 
+  it('requires explicit instanceId for every IDE tool but not discovery', () => {
+    expect(ListInstancesInputSchema.safeParse({}).success).toBe(true);
+    for (const [schema, value] of validInputs) {
+      if (schema === ListInstancesInputSchema) continue;
+      const withoutInstanceId = Object.fromEntries(
+        Object.entries(value).filter(([key]) => key !== 'instanceId'),
+      );
+      expect(schema.safeParse(withoutInstanceId).success).toBe(false);
+    }
+  });
+
   it('rejects unknown keys for every tool input', () => {
     for (const [schema, value] of validInputs) {
       expect(
@@ -94,22 +105,31 @@ describe('v0.1 tool inputs', () => {
 
   it('requires a document when a diagnostic version is supplied', () => {
     expect(
-      GetDiagnosticsInputSchema.safeParse({ expectedDocumentVersion: 2 }).success,
+      GetDiagnosticsInputSchema.safeParse({ instanceId, expectedDocumentVersion: 2 })
+        .success,
     ).toBe(false);
   });
 
   it('enforces Unicode query and trigger-character rules', () => {
     expect(
-      SearchWorkspaceSymbolsInputSchema.safeParse({ query: ' padded ' }).success,
+      SearchWorkspaceSymbolsInputSchema.safeParse({ instanceId, query: ' padded ' })
+        .success,
     ).toBe(false);
     expect(
-      SearchWorkspaceSymbolsInputSchema.safeParse({ query: '😀'.repeat(256) }).success,
+      SearchWorkspaceSymbolsInputSchema.safeParse({
+        instanceId,
+        query: '😀'.repeat(256),
+      }).success,
     ).toBe(true);
     expect(
-      SearchWorkspaceSymbolsInputSchema.safeParse({ query: 'a'.repeat(257) }).success,
+      SearchWorkspaceSymbolsInputSchema.safeParse({
+        instanceId,
+        query: 'a'.repeat(257),
+      }).success,
     ).toBe(false);
     expect(
       GetSignatureHelpInputSchema.safeParse({
+        instanceId,
         document,
         position,
         triggerCharacter: 'ab',

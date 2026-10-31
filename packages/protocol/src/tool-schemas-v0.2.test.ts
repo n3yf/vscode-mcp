@@ -111,6 +111,10 @@ describe('v0.2 read inputs', () => {
 
     for (const [schema, input] of inputs) {
       expect(schema.safeParse(input).success).toBe(true);
+      const withoutInstanceId = Object.fromEntries(
+        Object.entries(input).filter(([key]) => key !== 'instanceId'),
+      );
+      expect(schema.safeParse(withoutInstanceId).success).toBe(false);
       expect(schema.safeParse({ ...input, executeCommand: 'nope' }).success).toBe(
         false,
       );
@@ -122,6 +126,7 @@ describe('v0.2 read inputs', () => {
     expect(Buffer.byteLength(atLimit, 'utf8')).toBe(V02_READ_TOOL_LIMITS.globBytes);
     expect(
       V02ListWorkspaceFilesInputSchema.safeParse({
+        instanceId,
         workspaceFolderId,
         include: atLimit,
         exclude: '**/generated/**',
@@ -129,18 +134,23 @@ describe('v0.2 read inputs', () => {
     ).toBe(true);
     expect(
       V02ListWorkspaceFilesInputSchema.safeParse({
+        instanceId,
         workspaceFolderId,
         include: `${atLimit}a`,
       }).success,
     ).toBe(false);
     for (const include of ['', ' padded ', '/absolute/**', '../bad', 'a\\b']) {
       expect(
-        V02ListWorkspaceFilesInputSchema.safeParse({ workspaceFolderId, include })
-          .success,
+        V02ListWorkspaceFilesInputSchema.safeParse({
+          instanceId,
+          workspaceFolderId,
+          include,
+        }).success,
       ).toBe(false);
     }
     expect(
       V02ListWorkspaceFilesInputSchema.safeParse({
+        instanceId,
         workspaceFolderId,
         exclude: null,
       }).success,
@@ -148,7 +158,7 @@ describe('v0.2 read inputs', () => {
   });
 
   it('enforces cursor shape and size', () => {
-    const base = { workspaceFolderId };
+    const base = { instanceId, workspaceFolderId };
     expect(
       V02ListWorkspaceFilesInputSchema.safeParse({ ...base, cursor: 'abc.def' })
         .success,
@@ -168,6 +178,7 @@ describe('v0.2 read inputs', () => {
     const item = { document };
     expect(
       V02ReadDocumentsInputSchema.safeParse({
+        instanceId,
         workspaceFolderId,
         documents: Array.from(
           { length: V02_READ_TOOL_LIMITS.readDocuments.itemsMax },
@@ -177,11 +188,15 @@ describe('v0.2 read inputs', () => {
       }).success,
     ).toBe(true);
     expect(
-      V02ReadDocumentsInputSchema.safeParse({ workspaceFolderId, documents: [] })
-        .success,
+      V02ReadDocumentsInputSchema.safeParse({
+        instanceId,
+        workspaceFolderId,
+        documents: [],
+      }).success,
     ).toBe(false);
     expect(
       V02ReadDocumentsInputSchema.safeParse({
+        instanceId,
         workspaceFolderId,
         documents: Array.from(
           { length: V02_READ_TOOL_LIMITS.readDocuments.itemsMax + 1 },
@@ -194,18 +209,21 @@ describe('v0.2 read inputs', () => {
   it('enforces literal query scalar and NUL rules while preserving whitespace', () => {
     expect(
       V02SearchWorkspaceTextInputSchema.safeParse({
+        instanceId,
         workspaceFolderId,
         query: '.*[literal]$',
       }).success,
     ).toBe(true);
     expect(
       V02SearchWorkspaceTextInputSchema.safeParse({
+        instanceId,
         workspaceFolderId,
         query: '😀'.repeat(V02_READ_TOOL_LIMITS.searchWorkspaceText.queryScalarsMax),
       }).success,
     ).toBe(true);
     expect(
       V02SearchWorkspaceTextInputSchema.safeParse({
+        instanceId,
         workspaceFolderId,
         query: ' padded ',
       }).success,
@@ -216,8 +234,11 @@ describe('v0.2 read inputs', () => {
       'a'.repeat(V02_READ_TOOL_LIMITS.searchWorkspaceText.queryScalarsMax + 1),
     ]) {
       expect(
-        V02SearchWorkspaceTextInputSchema.safeParse({ workspaceFolderId, query })
-          .success,
+        V02SearchWorkspaceTextInputSchema.safeParse({
+          instanceId,
+          workspaceFolderId,
+          query,
+        }).success,
       ).toBe(false);
     }
   });

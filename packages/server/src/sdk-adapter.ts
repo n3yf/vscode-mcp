@@ -373,7 +373,7 @@ function createInvocation(
   input: unknown,
 ): {
   readonly invocation: V1AllExtensionToolInvocation;
-  readonly requestedInstanceId: string | null;
+  readonly requestedInstanceId: string;
 } {
   const validatedInput: unknown = definition.inputSchema.parse(input);
   if (!isRecord(validatedInput)) {
@@ -382,11 +382,10 @@ function createInvocation(
   assertSerializedToolArgumentsWithinLimit(validatedInput);
 
   const requestedInstanceIdValue = validatedInput.instanceId;
-  if (
-    requestedInstanceIdValue !== undefined &&
-    typeof requestedInstanceIdValue !== 'string'
-  ) {
-    throw new Error('The validated MCP instance selector was not a string.');
+  if (typeof requestedInstanceIdValue !== 'string') {
+    throw new Error(
+      'The validated MCP instance selector is required and must be a string.',
+    );
   }
 
   const arguments_: Record<string, unknown> = {};
@@ -401,7 +400,7 @@ function createInvocation(
       tool: definition.name,
       arguments: arguments_,
     }),
-    requestedInstanceId: requestedInstanceIdValue ?? null,
+    requestedInstanceId: requestedInstanceIdValue,
   };
 }
 

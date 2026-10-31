@@ -62,6 +62,7 @@ class ExtensionController implements vscode.Disposable {
   #serviceFolderKey: string | undefined;
   #serviceStartResult: IpcInstanceServiceStartResult | undefined;
   readonly #sessionEnabledState = new Map<string, boolean>();
+  readonly #sessionDisabledCapabilities = new Map<string, Set<PrivilegedCapability>>();
   #refreshTail: Promise<void> = Promise.resolve();
   #statusDetail = 'VS Code MCP is starting.';
   #disposed = false;
@@ -244,6 +245,10 @@ class ExtensionController implements vscode.Disposable {
         this.#serviceStartResult?.status === 'ready' &&
         this.#serviceFingerprint === eligibility.identity?.fingerprint
       ) {
+        const fingerprint = eligibility.identity?.fingerprint;
+        if (fingerprint !== undefined) {
+          this.setCapabilityDisabledForSession(fingerprint, capability, false);
+        }
         this.#grants.grant(capability);
         this.updateStatus(eligibility, true);
         void vscode.window.showInformationMessage(
@@ -262,6 +267,14 @@ class ExtensionController implements vscode.Disposable {
   }
 
   private async disableCapability(capability: PrivilegedCapability): Promise<void> {
+    const eligibility = await evaluateWorkspace();
+    if (eligibility.identity !== undefined) {
+      this.setCapabilityDisabledForSession(
+        eligibility.identity.fingerprint,
+        capability,
+        true,
+      );
+    }
     this.#grants.revoke(capability);
     this.#runtime?.handleCapabilityRevoked(capability);
     await this.refresh();
@@ -544,6 +557,7 @@ class ExtensionController implements vscode.Disposable {
           grants: this.#grants,
           isWorkspaceEnabled: (fingerprint) => this.isWorkspaceEnabled(fingerprint),
         });
+        this.restoreDefaultCapabilities(identity.fingerprint);
       }
       if (this.#serviceStartResult.status !== 'ready') {
         await service.stop();
@@ -572,6 +586,36 @@ class ExtensionController implements vscode.Disposable {
     this.#serviceFolderKey = undefined;
     this.#serviceStartResult = undefined;
     await this.refresh();
+  }
+
+  private restoreDefaultCapabilities(fingerprint: string): void {
+    const manuallyDisabled = this.#sessionDisabledCapabilities.get(fingerprint);
+    for (const capability of ['write', 'execution'] as const) {
+      if (!manuallyDisabled?.has(capability)) {
+        this.#grants.grant(capability);
+      }
+    }
+  }
+
+  private setCapabilityDisabledForSession(
+    fingerprint: string,
+    capability: PrivilegedCapability,
+    disabled: boolean,
+  ): void {
+    let manuallyDisabled = this.#sessionDisabledCapabilities.get(fingerprint);
+    if (disabled) {
+      if (manuallyDisabled === undefined) {
+        manuallyDisabled = new Set<PrivilegedCapability>();
+        this.#sessionDisabledCapabilities.set(fingerprint, manuallyDisabled);
+      }
+      manuallyDisabled.add(capability);
+      return;
+    }
+
+    manuallyDisabled?.delete(capability);
+    if (manuallyDisabled?.size === 0) {
+      this.#sessionDisabledCapabilities.delete(fingerprint);
+    }
   }
 
   private updateStatus(eligibility: Eligibility, enabled: boolean): void {
@@ -605,7 +649,7 @@ class ExtensionController implements vscode.Disposable {
   private isWorkspaceEnabled(fingerprint: string): boolean {
     return (
       this.#sessionEnabledState.get(fingerprint) ??
-      this.#context.globalState.get<boolean>(enabledKey(fingerprint), false)
+      this.#context.globalState.get<boolean>(enabledKey(fingerprint), true)
     );
   }
 
