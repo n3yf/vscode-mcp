@@ -44,6 +44,68 @@ suite('vscode-mcp extension', () => {
     process.platform === 'darwin' || process.platform === 'linux' ? test : test.skip;
 
   testPosix(
+    'automatically enables MCP and grants Read, Write, and Execution after Service Ready',
+    async function () {
+      this.timeout(60_000);
+      const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      assert.ok(workspacePath);
+      const client = await startMcpClient(workspacePath);
+
+      const readCapabilities = async (instanceId: string) => {
+        const response = await eventually(async () => {
+          const result = await callTool(client, 'get_capability_status', {
+            instanceId,
+          });
+          return recordProperty(result, 'isError') === true ? null : result;
+        });
+        return requiredRecord(requiredRecord(response, 'structuredContent'), 'result');
+      };
+
+      try {
+        const initialInstance = await waitForSingleInstance(client);
+        const initialInstanceId = requiredString(initialInstance, 'instanceId');
+        const initialCapabilities = await readCapabilities(initialInstanceId);
+        assert.equal(initialCapabilities['read'], true);
+        assert.equal(initialCapabilities['write'], true);
+        assert.equal(initialCapabilities['execution'], true);
+
+        await vscode.commands.executeCommand('vscode-mcp.disableWrites');
+        await vscode.commands.executeCommand('vscode-mcp.disableExecution');
+        const manuallyDisabled = await readCapabilities(initialInstanceId);
+        assert.equal(manuallyDisabled['write'], false);
+        assert.equal(manuallyDisabled['execution'], false);
+
+        await vscode.commands.executeCommand('vscode-mcp.disable');
+        await eventually(async () =>
+          (await registryRecordExists(initialInstanceId)) ? null : true,
+        );
+        await vscode.commands.executeCommand('vscode-mcp.enable');
+
+        const restartedInstance = await waitForSingleInstance(client);
+        const restartedInstanceId = requiredString(restartedInstance, 'instanceId');
+        assert.notEqual(restartedInstanceId, initialInstanceId);
+        const restartedCapabilities = await readCapabilities(restartedInstanceId);
+        assert.equal(restartedCapabilities['read'], true);
+        assert.equal(restartedCapabilities['write'], false);
+        assert.equal(restartedCapabilities['execution'], false);
+
+        await vscode.commands.executeCommand('vscode-mcp.enableWrites');
+        await vscode.commands.executeCommand('vscode-mcp.enableExecution');
+        const reenabledCapabilities = await readCapabilities(restartedInstanceId);
+        assert.equal(reenabledCapabilities['write'], true);
+        assert.equal(reenabledCapabilities['execution'], true);
+
+        await vscode.commands.executeCommand('vscode-mcp.disable');
+        await eventually(async () =>
+          (await registryRecordExists(restartedInstanceId)) ? null : true,
+        );
+      } finally {
+        await client.close();
+      }
+    },
+  );
+
+  testPosix(
     'serves the complete 39-tool surface through MCP, IPC, and the extension',
     async function () {
       this.timeout(60_000);
@@ -94,8 +156,8 @@ suite('vscode-mcp extension', () => {
           'result',
         );
         assert.equal(capabilityResult['read'], true);
-        assert.equal(capabilityResult['write'], false);
-        assert.equal(capabilityResult['execution'], false);
+        assert.equal(capabilityResult['write'], true);
+        assert.equal(capabilityResult['execution'], true);
 
         const filesResponse = await callTool(client, 'list_workspace_files', {
           instanceId,
@@ -288,7 +350,7 @@ suite('vscode-mcp extension', () => {
   );
 
   testPosix(
-    'withdraws a changed workspace fingerprint until it is explicitly enabled',
+    'automatically registers a changed workspace fingerprint with default capabilities',
     async function () {
       this.timeout(60_000);
       await vscode.commands.executeCommand('vscode-mcp.disable');
@@ -327,17 +389,9 @@ suite('vscode-mcp extension', () => {
         assert.equal(workspaceFolderAdded, true);
         await waitForWorkspaceFolder(addedWorkspaceUri, true);
 
-        await eventually(async () => {
-          const instances = instanceDescriptors(
-            await callTool(client, 'list_instances', {}),
-          );
-          return instances.length === 0 &&
-            !(await registryRecordExists(originalInstanceId))
-            ? true
-            : null;
-        });
-
-        await enableWorkspaceMcp();
+        await eventually(async () =>
+          !(await registryRecordExists(originalInstanceId)) ? true : null,
+        );
         const changed = await waitForSingleInstance(client);
         const changedInstanceId = requiredString(changed, 'instanceId');
         assert.notEqual(changedInstanceId, originalInstanceId);
@@ -346,6 +400,16 @@ suite('vscode-mcp extension', () => {
         const changedFolders = changed['workspaceFolders'];
         assert.ok(Array.isArray(changedFolders));
         assert.equal(changedFolders.length, originalFolderCount + 1);
+        const capabilities = await callTool(client, 'get_capability_status', {
+          instanceId: changedInstanceId,
+        });
+        const capabilityResult = requiredRecord(
+          requiredRecord(capabilities, 'structuredContent'),
+          'result',
+        );
+        assert.equal(capabilityResult['read'], true);
+        assert.equal(capabilityResult['write'], true);
+        assert.equal(capabilityResult['execution'], true);
       } finally {
         if (workspaceFolderAdded) {
           await vscode.commands.executeCommand('vscode-mcp.disable');
@@ -404,6 +468,15 @@ suite('vscode-mcp extension', () => {
         const workspaceFolderId = requiredString(folder, 'workspaceFolderId');
         const destination = { workspaceFolderId, relativePath: createdPath };
 
+        await vscode.commands.executeCommand('vscode-mcp.disableWrites');
+        const disabledStatus = await callTool(client, 'get_capability_status', {
+          instanceId,
+        });
+        const disabledStatusResult = requiredRecord(
+          requiredRecord(disabledStatus, 'structuredContent'),
+          'result',
+        );
+        assert.equal(disabledStatusResult['write'], false);
         const denied = await callTool(client, 'create_workspace_file', {
           instanceId,
           destination,
@@ -1282,6 +1355,7 @@ suite('vscode-mcp extension', () => {
         assert.equal(bunTask['runner'], 'bun');
         const taskId = requiredString(task, 'id');
 
+        await vscode.commands.executeCommand('vscode-mcp.disableExecution');
         const denied = await callTool(client, 'run_task', { instanceId, taskId });
         assertToolFailure(denied, 'EXECUTION_NOT_ENABLED');
         await vscode.commands.executeCommand('vscode-mcp.enableExecution');
@@ -1403,6 +1477,7 @@ suite('vscode-mcp extension', () => {
           ),
         );
 
+        await vscode.commands.executeCommand('vscode-mcp.disableExecution');
         const denied = await callTool(client, 'start_debugging', {
           instanceId,
           workspaceFolderId,

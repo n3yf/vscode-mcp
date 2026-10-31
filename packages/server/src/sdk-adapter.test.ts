@@ -304,6 +304,28 @@ describe('MCP SDK adapter', () => {
     }
   });
 
+  it('rejects IDE calls without an explicit instanceId before reaching the gateway', async () => {
+    const gateway = new TestGateway(async () => ({
+      status: 'failed',
+      error: {
+        code: 'INSTANCE_NOT_FOUND',
+        message: 'An explicit instance selector is required.',
+        retryable: false,
+      },
+    }));
+    const { client, close } = await connected(gateway);
+    try {
+      const response = await client.callTool({
+        name: 'get_editor_context',
+        arguments: {},
+      });
+      expect(response.isError).toBe(true);
+      expect(gateway.calls).toHaveLength(0);
+    } finally {
+      await close();
+    }
+  });
+
   it('strips instanceId before IPC and wraps a validated success', async () => {
     const gateway = new TestGateway(async () => ({
       status: 'completed',
@@ -361,7 +383,7 @@ describe('MCP SDK adapter', () => {
     try {
       const response = await client.callTool({
         name: 'get_editor_context',
-        arguments: {},
+        arguments: { instanceId: INSTANCE_ID },
       });
 
       expect(response.isError).toBe(true);
@@ -434,7 +456,7 @@ describe('MCP SDK adapter', () => {
     try {
       const response = await client.callTool({
         name: 'get_editor_context',
-        arguments: {},
+        arguments: { instanceId: INSTANCE_ID },
       });
 
       expect(response.isError).toBe(true);
@@ -476,7 +498,7 @@ describe('MCP SDK adapter', () => {
     const controller = new AbortController();
     try {
       const response = client.callTool(
-        { name: 'get_editor_context', arguments: {} },
+        { name: 'get_editor_context', arguments: { instanceId: INSTANCE_ID } },
         undefined,
         { signal: controller.signal },
       );
@@ -514,7 +536,7 @@ describe('MCP SDK adapter', () => {
     try {
       const response = await client.callTool({
         name: 'get_editor_context',
-        arguments: {},
+        arguments: { instanceId: INSTANCE_ID },
       });
 
       expect(response.isError).toBe(true);

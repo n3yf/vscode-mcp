@@ -142,7 +142,7 @@ export function createSuccessSchema<ResultSchema extends z.ZodType>(
 }
 
 const InstanceSelectorShape = {
-  instanceId: InstanceIdSchema.optional(),
+  instanceId: InstanceIdSchema,
 };
 
 const ExpectedVersionShape = {

@@ -547,6 +547,7 @@ describePosix('M1-LOG-001/003 and M1-NET-001/002 runtime instrumentation', () =>
     const success = await client.request(3, 'tools/call', {
       name: 'read_document',
       arguments: {
+        instanceId: snapshot.record.instanceId,
         document: {
           kind: 'workspacePath',
           workspaceFolderId: 'root',
@@ -560,6 +561,7 @@ describePosix('M1-LOG-001/003 and M1-NET-001/002 runtime instrumentation', () =>
     const internalFailure = await client.request(4, 'tools/call', {
       name: 'read_document',
       arguments: {
+        instanceId: snapshot.record.instanceId,
         document: {
           kind: 'workspacePath',
           workspaceFolderId: 'root',
@@ -588,7 +590,7 @@ describePosix('M1-LOG-001/003 and M1-NET-001/002 runtime instrumentation', () =>
     pendingCall = createPendingToolCall();
     const timedOut = client.request(6, 'tools/call', {
       name: 'get_editor_context',
-      arguments: {},
+      arguments: { instanceId: snapshot.record.instanceId },
     });
     await withDeadline(pendingCall.started, 3_000, 'timeout handler startup');
     const timeoutResponse = await timedOut;
@@ -600,7 +602,7 @@ describePosix('M1-LOG-001/003 and M1-NET-001/002 runtime instrumentation', () =>
     const cancelled = client
       .request(7, 'tools/call', {
         name: 'get_editor_context',
-        arguments: {},
+        arguments: { instanceId: snapshot.record.instanceId },
       })
       .catch(() => undefined);
     await withDeadline(pendingCall.started, 3_000, 'cancel handler startup');

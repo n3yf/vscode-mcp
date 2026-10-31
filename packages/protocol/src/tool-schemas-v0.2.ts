@@ -103,7 +103,7 @@ const CursorSchema = z
   .max(V02_READ_TOOL_LIMITS.cursorCharacters)
   .regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
 
-const InstanceSelectorShape = { instanceId: InstanceIdSchema.optional() };
+const InstanceSelectorShape = { instanceId: InstanceIdSchema };
 const WorkspaceSelectorShape = { workspaceFolderId: WorkspaceFolderIdSchema };
 const DiscoveryPolicyShape = {
   include: GlobSchema.optional(),
