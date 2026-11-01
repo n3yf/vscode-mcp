@@ -1,2 +1,15 @@
 packages:
   - packages/*
+
+# Only explicitly reviewed dependency lifecycle scripts may run during installation.
+onlyBuiltDependencies:
+  - esbuild
+
+# Root-level dependency overrides; keep these aligned with pnpm-lock.yaml.
+overrides:
+  diff: '8.0.4'
+  serialize-javascript: '7.0.7'
+  'ajv>fast-uri': '>=3.1.9 <4'
+  'js-yaml': '>=4.3.2 <5'
+  '@modelcontextprotocol/sdk>hono': '>=4.13.11 <5'
+  qs: '>=6.16.1 <7'
